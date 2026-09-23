@@ -24,6 +24,7 @@ tests/SNAPSHOT/fixtures/*.raw
 # build-n64.sh; never commit game assets), emulator save RAM
 /build-n64/
 /lba2.z64
+/lba2-audiodiag.z64
 /lba2.dfs
 /lba2.ram
 

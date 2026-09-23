@@ -17,6 +17,7 @@
 #include <SYSTEM/LIMITS.H>
 #include <SYSTEM/LOGPRINT.H>
 #include <SYSTEM/MOUSE.H>
+#include <SYSTEM/N64_AUDIODIAG.H>
 #include <SYSTEM/N64_SRAMFS.H>
 #include <SYSTEM/STRING.H>
 #include <SYSTEM/TIMER.H>
@@ -164,6 +165,7 @@ void N64_BlitGameFramebuffer(const void *phys, U32 resX, U32 resY,
     parms.scale_x = (float)disp->width / (float)resX;
     parms.scale_y = (float)disp->height / (float)resY;
     rdpq_tex_blit(&src, 0, 0, &parms);
+    N64AudioDiag_Hud(); // no-op unless the ROM carries rom:/audiodiag
     rdpq_detach_show();
 
 #ifdef LBA2_TARGET_WIIU
@@ -1017,6 +1019,9 @@ int main(int argc, char *argv[]) {
 
     // Saves and lba2.cfg live in cartridge SRAM (engine user dir = "sram:/").
     N64SramFs_Init();
+
+    // Hardware triage build only (rom:/audiodiag): PI read self-test report.
+    N64AudioDiag_BootTest();
 
     (void)argc;
     (void)argv;

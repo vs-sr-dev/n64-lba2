@@ -22,6 +22,7 @@
 #   IMAGE     - Docker image tag (default: n64lba-toolchain:latest)
 #   GAMEDATA  - directory with the retail LBA2 data (*.HQR, *.ILE, *.OBL,
 #               music/, vox/); default: ../../CommonGOG
+#   N64_AUDIO_DIAG - 1 = audio diagnostics ROM (boot self-test + HUD)
 set -e
 
 GAMEDATA="${GAMEDATA:-../../CommonGOG}"
@@ -61,7 +62,7 @@ if [ -z "$N64_INST" ]; then
     if [ "${1:-}" = "shell" ]; then
         exec "$DOCKER" run --rm -it -v "$ROOT:/project" $EXTRA -w "/project/$REL" -e "GAMEDATA=$GAMEDATA_IN" "$IMAGE" sh
     fi
-    exec "$DOCKER" run --rm -v "$ROOT:/project" $EXTRA -w "/project/$REL" -e "GAMEDATA=$GAMEDATA_IN" "$IMAGE" sh build-n64.sh "$@"
+    exec "$DOCKER" run --rm -v "$ROOT:/project" $EXTRA -w "/project/$REL" -e "GAMEDATA=$GAMEDATA_IN" -e "N64_AUDIO_DIAG=${N64_AUDIO_DIAG:-0}" "$IMAGE" sh build-n64.sh "$@"
 fi
 
 # --- container side -------------------------------------------------------
@@ -102,6 +103,16 @@ done
 DFSROOT=build-n64/dfsroot
 rm -rf "$DFSROOT/data" # layout of an earlier iteration
 mkdir -p "$DFSROOT"
+# Hardware triage build: N64_AUDIO_DIAG=1 stages the marker file that wakes
+# the audio diagnostics (boot PI read self-test + in-game HUD, see
+# LIB386/SYSTEM/N64_AUDIODIAG.CPP). Same code either way; only the marker.
+if [ "${N64_AUDIO_DIAG:-0}" = "1" ]; then
+    echo "audio diagnostics" > "$DFSROOT/audiodiag"
+    echo "[build-n64] AUDIO DIAGNOSTICS BUILD (rom:/audiodiag staged)"
+elif [ -f "$DFSROOT/audiodiag" ]; then
+    # make does not notice a file leaving the DFS: force the image rebuild.
+    rm -f "$DFSROOT/audiodiag" build-n64/lba2.dfs
+fi
 if [ -d "$GAMEDATA" ]; then
     find "$GAMEDATA" -maxdepth 1 -type f | while read -r f; do
         base=$(basename "$f" | tr 'A-Z' 'a-z')

@@ -16,6 +16,7 @@
 #include <SYSTEM/ADELINE_TYPES.H>
 #include <SYSTEM/LIMITS.H>
 #include <SYSTEM/LOGPRINT.H>
+#include <SYSTEM/N64_AUDIODIAG.H>
 #include <SYSTEM/TIMER.H>
 
 #include <libdragon.h>
@@ -406,6 +407,7 @@ static void VoiceApplyVol(void) {
 static void StopVoice(void) {
     if (s_voiceOpen) {
         if (mixer_ch_playing(CH_VOICE)) mixer_ch_stop(CH_VOICE);
+        N64AudioDiag_StreamClosed(&s_voiceWav);
         wav64_close(&s_voiceWav);
         s_voiceOpen = 0;
     }
@@ -428,6 +430,7 @@ static U32 PlayVoice(const char *bufW, S32 volume, S32 pan) {
     s_voiceVol = (volume > 127) ? 127 : ((volume < 0) ? 0 : volume);
     s_voicePan = pan;
     wav64_play(&s_voiceWav, CH_VOICE);
+    N64AudioDiag_WrapStream(&s_voiceWav, 1);
     VoiceApplyVol();
     return SPEAK_SAMPLE;
 }
@@ -655,10 +658,27 @@ static void StreamApplyVolume(void) {
 void StopStream(void) {
     if (s_musicOpen) {
         if (mixer_ch_playing(CH_MUSIC)) mixer_ch_stop(CH_MUSIC);
+        N64AudioDiag_StreamClosed(&s_music);
         wav64_close(&s_music);
         s_musicOpen = 0;
     }
     s_musicPaused = 0;
+    s_streamName[0] = '\0';
+}
+
+// A stream that reached its end must stop being "the music": GetMusic()
+// (MUSIC.CPP) decides whether something plays from StreamName() alone, and
+// PlayJingle() skips a jingle whose name matches it. A name that outlived its
+// stream wedged the whole queue - every later PlayMusic saw cur != 0 and
+// re-queued forever - so after the first jingle ran out (Twinsen's house on a
+// new game) no music played again. Same fix as AIL/WIIU/STREAM_WIIU.CPP.
+// Paused streams are collected too: on N64 a pause only mutes, the track
+// keeps running and can end underneath it.
+static void CollectDrainedStream(void) {
+    if (s_musicOpen && !mixer_ch_playing(CH_MUSIC)) {
+        LogPrintf("[music] ended %s%c", s_streamName, 10);
+        StopStream();
+    }
 }
 
 void OpenStream(void) {
@@ -715,6 +735,7 @@ void PlayStream(char *name) {
     strncpy(s_streamName, name, sizeof(s_streamName) - 1);
     s_streamName[sizeof(s_streamName) - 1] = '\0';
     wav64_play(&s_music, CH_MUSIC);
+    N64AudioDiag_WrapStream(&s_music, 0);
     U32 t4 = (U32)get_ticks_ms();
     StreamApplyVolume();
     LogPrintf("[music] playing %s | stop=%lums probe=%lums open=%lums play=%lums\n", path,
@@ -749,10 +770,12 @@ void ResumeStream(void) {
 }
 
 S32 IsStreamPlaying(void) {
+    CollectDrainedStream();
     return (s_musicOpen && !s_musicPaused && mixer_ch_playing(CH_MUSIC)) ? TRUE : FALSE;
 }
 
 char *StreamName(void) {
+    CollectDrainedStream();
     return s_streamName;
 }
 
@@ -823,8 +846,43 @@ S32 IsCDPlaying(void) {
 
 /* ── Per-frame pump (overrides the weak no-op in N64_BACKEND.CPP) ───────── */
 
+// Audio diagnostics ROM: drive the game's own stream paths from the boot
+// report (SYSTEM/N64_AUDIODIAG.CPP), before the engine is up.
+void N64AudioTest_Voice(const char *base) {
+    char buf[80];
+    buf[0] = 'W'; // what the engine writes over FlagNextVoc
+    snprintf(buf + 1, sizeof(buf) - 1, "%s", base);
+    PlayVoice(buf, 127, 64);
+}
+
+void N64AudioTest_Music(const char *name) {
+    PlayStream((char *)name);
+}
+
+void N64AudioTest_Stop(void) {
+    StopVoice();
+    StopStream();
+}
+
+// Snapshot for the audio diagnostics HUD (SYSTEM/N64_AUDIODIAG.CPP).
+void N64AudioGetStatus(N64AudioStatus *st) {
+    memset(st, 0, sizeof(*st));
+    if (!s_audioInit) return;
+    st->musicOpen = s_musicOpen;
+    st->musicPlaying = s_musicOpen && mixer_ch_playing(CH_MUSIC);
+    st->musicPaused = s_musicPaused;
+    st->musicVolume = streamVolume;
+    st->musicPos = st->musicPlaying ? mixer_ch_get_pos(CH_MUSIC) : 0.0f;
+    st->voiceOpen = s_voiceOpen;
+    st->voicePlaying = s_voiceOpen && mixer_ch_playing(CH_VOICE);
+    st->voiceVolume = s_voiceVol;
+    st->samplesPaused = s_samplesPaused;
+    st->voicePos = st->voicePlaying ? mixer_ch_get_pos(CH_VOICE) : 0.0f;
+}
+
 void AudioStreamPump(void) {
     if (!s_audioInit) return;
+    N64AudioDiag_PumpTick();
 
     while (audio_can_write()) {
         short *out = audio_write_begin();
