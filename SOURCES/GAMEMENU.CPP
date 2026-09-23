@@ -1108,6 +1108,12 @@ static S32 GameMenuSaveListHitTest(U32 mx, U32 my, S32 nb, S32 start, S32 *outSe
 #define OSK_W (OSK_COLS * OSK_CELL_W)
 #define OSK_H (OSK_ROWS * OSK_CELL_H)
 
+// Grid characters are returned tagged above the byte range: the keycode shim
+// (wiiu_scancodes.h) aliases SDLK_* to small HID scancodes, and a bare 'P'
+// (80) equals A_LEFT, which InputPlayerName treats as backspace. The switch's
+// default branch masks the tag off again (akey &= 0xFF).
+#define OSK_CHAR(c) (0x10000 | (U8)(c))
+
 static const char kOskGrid[OSK_ROWS][OSK_COLS + 1] = {
     "ABCDEFGHIJ",
     "KLMNOPQRST",
@@ -1193,11 +1199,11 @@ static S32 WiiU_OskPoll(void) {
     btn = JoystickFirstPressedScancode();
     switch (btn) {
     case K_GAMEPAD_A:
-        return (S32)(U8)kOskGrid[OskRow][OskCol];
+        return OSK_CHAR(kOskGrid[OskRow][OskCol]);
     case K_GAMEPAD_B:
         return A_BACKSPACE;
     case K_GAMEPAD_Y:
-        return ' ';
+        return OSK_CHAR(' ');
     case K_GAMEPAD_START:
         return A_RETURN;
     case K_GAMEPAD_BACK:

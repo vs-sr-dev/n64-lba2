@@ -42,6 +42,7 @@ extern "C" {
 #define SPEAK_SAMPLE 0x1234
 #define SAMPLE_RATE 44100          // raw-buffer fallback rate (WiiU parity)
 #define PITCHBEND_NORMAL 4096
+#define SFX_MAX_FREQ 48000        // per-channel mixer ceiling of the SFX voices
 
 S32 Sample_Driver_Enabled = FALSE;
 S32 sampleVolume = 127;
@@ -127,6 +128,17 @@ static void VoiceApplyVolume(int slot) {
         r = t;
     }
     mixer_ch_set_vol(slot, vol * l, vol * r);
+}
+
+// Playback rate for a pitch-bent SFX, clamped to the channel ceiling set in
+// EnsureAudioInit. Animation scripts carry their own frequency value (FICHE.CPP
+// F_NEW_SAMPLE) and some push past it — the vacuum cleaner in Ker'aooc's house
+// (cube 35) asks for 48.5 kHz on a 22 kHz sample — which is a libdragon assert
+// (a crash on hardware), not a mixer that quietly saturates like MSS did.
+static void VoiceSetFreq(int slot, S32 hz, S32 pitchbend) {
+    float f = (float)hz * (float)pitchbend / (float)PITCHBEND_NORMAL;
+    if (f > (float)SFX_MAX_FREQ) f = (float)SFX_MAX_FREQ;
+    mixer_ch_set_freq(slot, f);
 }
 
 static void VoiceFree(int slot) {
@@ -271,7 +283,7 @@ static void EnsureAudioInit(void) {
     // 32 kHz — the undersized buffer then aliases/garbles the sound. Raise the
     // ceiling to 48 kHz so pitch-bent one-shots resample cleanly.
     for (int i = 0; i < NUM_VOICES; i++)
-        mixer_ch_set_limits(i, 16, 48000, 0);
+        mixer_ch_set_limits(i, 16, SFX_MAX_FREQ, 0);
     s_audioInit = 1;
     LogPrintf("N64 AUDIO: mixer up (%d ch @ %d Hz)\n", NUM_CHANNELS, OUTPUT_RATE);
 }
@@ -523,7 +535,7 @@ U32 PlaySample(void *buffer, S32 sizeBytes, U32 userhandle, S32 pitchbend,
     w->ctx = v;
 
     mixer_ch_play(slot, w);
-    mixer_ch_set_freq(slot, (float)hz * (float)pitchbend / (float)PITCHBEND_NORMAL);
+    VoiceSetFreq(slot, hz, pitchbend);
     VoiceApplyVolume(slot);
 
     if (s_sfxLog) {
@@ -561,8 +573,7 @@ void ChangePitchbendSample(U32 sample, S32 pitchbend) {
     if (pitchbend <= 0) pitchbend = PITCHBEND_NORMAL;
     s_voices[slot].pitch = pitchbend;
     if (mixer_ch_playing(slot))
-        mixer_ch_set_freq(slot, (float)s_voices[slot].rateHz *
-                                (float)pitchbend / (float)PITCHBEND_NORMAL);
+        VoiceSetFreq(slot, s_voices[slot].rateHz, pitchbend);
 }
 
 void ChangeVolumePanSample(U32 sample, S32 volume, S32 pan) {
