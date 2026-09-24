@@ -305,6 +305,12 @@ static U32 HalveBrickBank(void) {
 
     return newoff;
 }
+
+/* Shape of the bank LoadUsedBrick built, kept to validate every brick draw:
+ * a wild offset read from BufferBrick sends AffGraph to an unmapped address
+ * (hardware crash, Temple of Bu). */
+static U32 s_bankBricks = 0; /* entries in the offset table */
+static U32 s_bankSize = 0;   /* tab[s_bankBricks] = end of the pixel data */
 #endif /* LBA2_TARGET_N64 */
 
 /*--------------------------------------------------------------------------*/
@@ -494,6 +500,8 @@ S32 LoadUsedBrick() {
     // [renderscale] shrink the freshly built bank to half resolution
     // before InitGrille derives the masks from it.
     offset = (U32)HalveBrickBank();
+    s_bankBricks = (((U32 *)BufferBrick)[0] - 4) >> 2;
+    s_bankSize = offset;
 #endif
 
     return (offset);
@@ -1130,6 +1138,46 @@ void DrawOverBrickCage(S32 xm, S32 ym, S32 zm) {
 
 /*--------------------------------------------------------------------------*/
 
+#ifdef LBA2_TARGET_N64
+/* TRUE when brick `numbrick` (1-based, as stored in the block) of cell
+ * (block, brick) can be drawn from BufferBrick. Otherwise logs which link of
+ * the chain is broken and the caller skips the brick: the cell's brick slot
+ * (BufCube), the brick id (TabBlock rename) or the bank offset table
+ * (BufferBrick itself overwritten). */
+static S32 N64BrickDrawable(S32 block, S32 brick, S32 numbrick) {
+    static int s_logged = 0;
+    const U32 *tab = (const U32 *)BufferBrick;
+    const U8 *blk = GetAdrBlock(block);
+    U32 slots = (U32)blk[0] * blk[1] * blk[2];
+    U32 idx = (U32)(numbrick - 1);
+    const char *why = NULL;
+    U32 off = 0;
+
+    if ((U32)brick >= slots)
+        why = "cell brick slot past the block (BufCube)";
+    else if (idx >= s_bankBricks)
+        why = "brick id past the bank (TabBlock)";
+    else if (tab[0] != (s_bankBricks + 1) * 4 OR tab[s_bankBricks] != s_bankSize)
+        why = "bank table header overwritten (BufferBrick)";
+    else {
+        off = tab[idx];
+        if (off < tab[0] OR off >= s_bankSize)
+            why = "bank table entry overwritten (BufferBrick)";
+    }
+
+    if (why == NULL)
+        return TRUE;
+
+    if (s_logged < 16) {
+        LogPrintf("[grille] bad brick: %s | cube=%ld block=%ld slot=%ld/%lu numbrick=%ld bank=%lu/%lu tab0=%lu off=%lu\n",
+                  why, (long)NumCube, (long)block, (long)brick, (unsigned long)slots, (long)numbrick,
+                  (unsigned long)s_bankBricks, (unsigned long)s_bankSize, (unsigned long)tab[0], (unsigned long)off);
+        s_logged++;
+    }
+    return FALSE;
+}
+#endif
+
 void AffBrickBlock(S32 block, S32 brick, S16 x, S16 y, S16 z) {
     U8 *adr;
     S32 nb, col;
@@ -1174,6 +1222,11 @@ void AffBrickBlock(S32 block, S32 brick, S16 x, S16 y, S16 z) {
                   (int)brickcol, (int)ForbidenBrick);
         s_abb_logged++;
     }
+#endif
+
+#ifdef LBA2_TARGET_N64
+    if (numbrick AND numbrick != ForbidenBrick AND !N64BrickDrawable(block, brick, numbrick))
+        return;
 #endif
 
     if (numbrick AND numbrick != ForbidenBrick) {
@@ -1329,6 +1382,11 @@ void AffBrickBlockColon(S32 block, S32 brick, S16 x, S16 y, S16 z) {
 
     numbrick = LBA2_LE16_UA((const void *)adr); /* & 32767 */
 
+#ifdef LBA2_TARGET_N64
+    if (numbrick AND numbrick != ForbidenBrick AND !N64BrickDrawable(block, brick, numbrick))
+        return;
+#endif
+
     if (numbrick AND numbrick != ForbidenBrick) {
         Map2Screen(x - StartXCube, y - StartYCube, z - StartZCube);
 
@@ -1409,6 +1467,11 @@ void AffBrickBlockOnly(S32 block, S32 brick, S16 x, S16 y, S16 z) {
     adr += 2;
 
     numbrick = LBA2_LE16_UA((const void *)adr); /* & 32767 */
+
+#ifdef LBA2_TARGET_N64
+    if (numbrick AND numbrick != ForbidenBrick AND !N64BrickDrawable(block, brick, numbrick))
+        return;
+#endif
 
     if (numbrick AND numbrick != ForbidenBrick) {
         Map2Screen(x - StartXCube, y - StartYCube, z - StartZCube);

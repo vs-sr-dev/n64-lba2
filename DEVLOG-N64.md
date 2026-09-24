@@ -356,6 +356,12 @@ the megabytes come from.
   misread (`EMU-MISREAD`) from a memory mutation (`ZONE-MUTATED`); so far
   only a deterministic, harmless mutation on an exterior transition has
   been seen.
+- `[grille] bad brick`: `N64BrickDrawable` validates every brick draw
+  (cell slot in `BufCube`, brick id in `TabBlock`, the `BufferBrick`
+  offset table) and skips the brick instead of letting `AffGraph` follow a
+  wild offset — a hardware crash in the Temple of Bu, cause still open.
+  The retail grids and every GRM a scene references check out offline, so
+  the reason logged is what tells a bad id from an overwritten table.
 - `tools-n64/run-ares.ps1` redirects Ares' stdout (the ROM's ISViewer
   channel) to `ares_log.txt`: boot trace, engine logs, libdragon asserts
   with symbolic backtraces.
