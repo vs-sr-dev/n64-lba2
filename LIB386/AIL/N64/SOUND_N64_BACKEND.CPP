@@ -855,6 +855,22 @@ void N64AudioTest_Voice(const char *base) {
     PlayVoice(buf, 127, 64);
 }
 
+// "DebugVoiceWait: 1" repro hook (PERSO.CPP): play a clip, then wait for it
+// the way GameAskChoice does — spinning on the input poll only, no ManageTime.
+// Returns the ms until IsSamplePlaying(SPEAK_SAMPLE) dropped, -1 on timeout.
+S32 N64AudioTest_VoiceWait(const char *base, void (*poll)(void), U32 timeoutMs) {
+    N64AudioTest_Voice(base);
+    U32 t0 = (U32)get_ticks_ms();
+    while (IsSamplePlaying(SPEAK_SAMPLE)) {
+        if ((U32)get_ticks_ms() - t0 > timeoutMs) {
+            StopVoice();
+            return -1;
+        }
+        poll();
+    }
+    return (S32)((U32)get_ticks_ms() - t0);
+}
+
 void N64AudioTest_Music(const char *name) {
     PlayStream((char *)name);
 }

@@ -339,6 +339,26 @@ YUV blit far cheaper than it is on a console. Whether the port can move from the
 pinned trunk commit to `preview`, carrying the `inthandler.S` patch. And where
 the megabytes come from.
 
+## An answer nobody heard
+
+The hardware tester reported that whenever an NPC asks Twinsen a question,
+his spoken answer never plays and the game hangs until START. The freeze
+itself is the original design: `GameAskChoice` (GAMEMENU.CPP) holds the
+game while Twinsen says the chosen line, with
+`while (TestSpeak() && !ESC && !(Input & I_MENUS)) MyGetInput();`. On PC
+and Wii U the mixer runs on its own thread. Here it only advances inside
+`AudioStreamPump()`, which only `ManageTime()` called, and `MyGetInput()`
+never reaches `ManageTime()`. The voice channel was started and never
+mixed, so it never reached its end: `TestSpeak()` stayed true, and START,
+the loop's only other exit, was the one way out. The same pattern waits on
+speech in INVENT.CPP and in `MyDial`'s next-page wait, where the voice
+simply froze until the page was turned.
+
+It is deterministic, not a hardware quirk. `ManageKeyboard()` (reached by
+every `GetInput`) now pumps the mixer too. `DebugVoiceWait: 1` (with
+`DebugStartCube`) replays the exact loop on a short clip and logs
+`[voicewait]`: 10 s timeout before the fix, 542 ms after, in Ares.
+
 ## Diagnostics kept in the tree
 
 - `[renderprof]`/`[affprof]`: per-60-frame breakdown (terrain, object fill,

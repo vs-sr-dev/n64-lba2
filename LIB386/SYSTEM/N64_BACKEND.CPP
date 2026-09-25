@@ -487,6 +487,15 @@ extern "C" void N64Joy_ReinjectKeys(void);
 void ManageKeyboard() {
     memset(TabKeys, 0, 256); // Gamepad bits (256..) are owned by UpdateJoystick.
     N64Joy_ReinjectKeys();   // ...but the injected keyboard keys must survive it.
+
+    // Keep the mixer fed from every input poll. On PC/Wii U audio runs on its
+    // own thread; here it only advances when AudioStreamPump() runs, which
+    // ManageTime() does. Several engine loops spin on MyGetInput() alone while
+    // waiting for speech: GameAskChoice/INVENT `while (TestSpeak()) MyGetInput()`
+    // and the MyDial next-page wait. Unpumped, the voice channel never reaches
+    // its end, so Twinsen's spoken answer stayed silent and the game hung until
+    // START (the loop's only other exit).
+    AudioStreamPump();
 }
 
 void HandleEventsKeyboard(const void *event) {

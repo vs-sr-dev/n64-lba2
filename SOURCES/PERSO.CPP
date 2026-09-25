@@ -39,6 +39,22 @@ static S32 N64DebugSaveTest = 0;
 // frame, as if the camera never stopped moving — steady-state cost of a
 // walking frame measurable from a DebugStartCube boot with no input.
 static S32 N64DebugFullRedraw = 0;
+// "DebugVoiceWait: 1": once the first cube is up, play a short voice clip and
+// wait for it with the GameAskChoice loop (MyGetInput only) — the loop that
+// hung on Twinsen's spoken answers until START. Logs [voicewait].
+static S32 N64DebugVoiceWait = 0;
+extern "C" S32 N64AudioTest_VoiceWait(const char *base, void (*poll)(void), U32 timeoutMs);
+
+static void N64RunDebugVoiceWait(void) {
+    static S32 done = FALSE;
+    if (!N64DebugVoiceWait OR done) return;
+    done = TRUE;
+    S32 ms = N64AudioTest_VoiceWait("en_000_0065", MyGetInput, 10000);
+    if (ms < 0)
+        LogPrintf("[voicewait] FAIL: voice still playing after 10 s of MyGetInput()\n");
+    else
+        LogPrintf("[voicewait] OK: voice ended after %ld ms\n", (long)ms);
+}
 
 static void N64RunDebugSaveTest(void) {
     static S32 done = FALSE;
@@ -775,6 +791,7 @@ restartloop:
                 WIIU_FIRST_FMT(wiiu_first_iter_done, "[trace] MainLoop: ChangeCube exit (now NumCube=%d)\n", NumCube);
 #ifdef LBA2_TARGET_N64
                 N64RunDebugSaveTest();
+                N64RunDebugVoiceWait();
 #endif
             }
 
@@ -2434,6 +2451,7 @@ void ReadConfigFile(void) {
     N64DebugStartCube = DefFileBufferReadValueDefault("DebugStartCube", -1);
     N64DebugSaveTest = DefFileBufferReadValueDefault("DebugSaveTest", 0);
     N64DebugFullRedraw = DefFileBufferReadValueDefault("DebugFullRedraw", 0);
+    N64DebugVoiceWait = DefFileBufferReadValueDefault("DebugVoiceWait", 0);
     {
         extern U8 N64TerrainLod; // 3DEXT/TERRAIN.CPP
         N64TerrainLod = (U8)DefFileBufferReadValueDefault("TerrainLod", 0);
